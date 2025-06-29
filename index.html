@@ -1,0 +1,935 @@
+<div id="instructions">A/D键移动，空格键跳跃，J键或鼠标点击发射火箭！</div><!DOCTYPE html>
+<html>
+<head>
+    <title>马里奥打小鸟游戏（老鹰可掉落版）</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #333;
+        }
+        canvas {
+            background: #70c5ce;
+            display: block;
+            margin: 20px auto;
+            border: 4px solid #444;
+        }
+        #instructions {
+            color: white;
+            text-align: center;
+            font-family: Arial;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">A/D键移动，空格键跳跃。碰到老鹰会使它掉落！</div>
+    <canvas id="gameCanvas" width="600" height="300"></canvas>
+
+    <script>
+        // 自动聚焦到游戏画布
+        const canvas = document.getElementById('gameCanvas');
+        canvas.tabIndex = 1;
+        canvas.focus();
+
+        // 游戏初始化
+        const ctx = canvas.getContext('2d');
+        
+        // 音效已取消 // 简短的"耶"声
+        
+        // 马里奥角色设置
+        const mario = {
+            x: 100,
+            y: 100,
+            width: 30,
+            height: 48,
+            speed: 5,
+            jumpForce: 12,
+            velocityY: 0,
+            isJumping: false,
+            facingRight: true,
+            frame: 0,
+            animationTimer: 0,
+            armState: 0,
+            hasRocketLauncher: true,  // 升级为火箭筒
+            isShooting: false,
+            shootCooldown: 0
+        };
+
+        // 新增：火箭弹设置
+        const rockets = [];
+
+        // 新增：爆炸效果设置
+        const explosions = [];
+
+        // 新增：分数系统
+        let score = 0;
+        const scorePopups = [];  // 分数弹出效果
+
+        // 平台设置
+        const platforms = [
+            { x: 0, y: 250, width: 600, height: 20, color: '#2ecc71' },
+            { x: 300, y: 200, width: 100, height: 20, color: '#27ae60' },
+            { x: 150, y: 150, width: 100, height: 20, color: '#16a085' },
+            { x: 400, y: 180, width: 80, height: 20, color: '#27ae60' },
+            { x: 50, y: 120, width: 100, height: 20, color: '#16a085' }
+        ];
+
+        // 背景元素设置
+        const backgroundElements = {
+            sun: { 
+                x: 500, y: 50, radius: 30, color: '#f1c40f',
+                isHappy: false,
+                happyTimer: 0
+            },
+            trees: [
+                { 
+                    x: 80, y: 250, 
+                    trunkHeight: 25, trunkWidth: 12, 
+                    trunkColor: '#8b4513', 
+                    leavesColor: '#27ae60',
+                    leavesLevels: 3
+                },
+                { 
+                    x: 500, y: 250, 
+                    trunkHeight: 20, trunkWidth: 10, 
+                    trunkColor: '#a0522d', 
+                    leavesColor: '#2ecc71',
+                    leavesLevels: 4
+                }
+            ],
+            // 新增：云朵设置
+            clouds: [
+                {
+                    x: 150,
+                    y: 30,
+                    width: 60,
+                    height: 25,
+                    speed: 0.3,
+                    opacity: 0.8
+                },
+                {
+                    x: 350,
+                    y: 45,
+                    width: 80,
+                    height: 30,
+                    speed: 0.2,
+                    opacity: 0.7
+                },
+                {
+                    x: 50,
+                    y: 20,
+                    width: 45,
+                    height: 20,
+                    speed: 0.4,
+                    opacity: 0.9
+                },
+                {
+                    x: 450,
+                    y: 25,
+                    width: 55,
+                    height: 22,
+                    speed: 0.25,
+                    opacity: 0.75
+                }
+            ]
+        };
+
+        // 精致小鸟设置
+        const birds = [
+            { 
+                x: 100, y: 50, 
+                speed: 1.5, 
+                size: 12, 
+                isFalling: false, 
+                fallSpeed: 0,
+                wingState: 0,
+                color: '#8e44ad',
+                wingColor: '#9b59b6',
+                beakColor: '#f39c12'
+            },
+            { 
+                x: 200, y: 70, 
+                speed: 2, 
+                size: 10, 
+                isFalling: false, 
+                fallSpeed: 0,
+                wingState: 1,
+                color: '#e74c3c',
+                wingColor: '#c0392b',
+                beakColor: '#f1c40f'
+            },
+            { 
+                x: 400, y: 60, 
+                speed: 1.8, 
+                size: 11, 
+                isFalling: false, 
+                fallSpeed: 0,
+                wingState: 2,
+                color: '#3498db',
+                wingColor: '#2980b9',
+                beakColor: '#f1c40f'
+            }
+        ];
+
+        // 老鹰设置已取消
+
+        // 键盘控制
+        const keys = {
+            left: false,
+            right: false
+        };
+
+        // 事件监听
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'a' || e.key === 'A') {
+                keys.left = true;
+                mario.facingRight = false;
+            }
+            if (e.key === 'd' || e.key === 'D') {
+                keys.right = true;
+                mario.facingRight = true;
+            }
+            if (e.key === ' ' && !mario.isJumping) {
+                mario.velocityY = -mario.jumpForce;
+                mario.isJumping = true;
+                mario.armState = 1;
+            }
+            // 新增：鼠标左键或J键射击
+            if ((e.key === 'j' || e.key === 'J') && mario.shootCooldown <= 0) {
+                shoot();
+            }
+            e.preventDefault();
+        });
+
+        // 新增：鼠标点击射击
+        canvas.addEventListener('click', (e) => {
+            if (mario.shootCooldown <= 0) {
+                shoot();
+            }
+            canvas.focus();
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'a' || e.key === 'A') keys.left = false;
+            if (e.key === 'd' || e.key === 'D') keys.right = false;
+        });
+
+        // 点击画布聚焦
+        canvas.addEventListener('click', (e) => {
+            if (mario.shootCooldown <= 0) {
+                shoot();
+            }
+            canvas.focus();
+        });
+
+        // 新增：射击函数 - 火箭筒
+        function shoot() {
+            mario.isShooting = true;
+            mario.shootCooldown = 40; // 增加冷却时间，火箭筒射击较慢
+            
+            // 创建火箭弹 - 向上射击
+            const rocket = {
+                x: mario.x + mario.width / 2,
+                y: mario.y + mario.height / 4,
+                speedX: 0,
+                speedY: -8, // 稍慢一些，更真实
+                active: true,
+                trail: [] // 火箭尾迹
+            };
+            rockets.push(rocket);
+            
+            // 射击动作持续时间
+            setTimeout(() => {
+                mario.isShooting = false;
+            }, 200);
+        }
+
+        // 新增：创建爆炸效果
+        function createExplosion(x, y) {
+            explosions.push({
+                x: x,
+                y: y,
+                radius: 0,
+                maxRadius: 40,
+                particles: [],
+                timer: 30,
+                growing: true
+            });
+            
+            // 创建爆炸粒子
+            const explosion = explosions[explosions.length - 1];
+            for (let i = 0; i < 15; i++) {
+                explosion.particles.push({
+                    x: x,
+                    y: y,
+                    speedX: (Math.random() - 0.5) * 8,
+                    speedY: (Math.random() - 0.5) * 8,
+                    life: 20,
+                    color: `hsl(${Math.random() * 60 + 15}, 100%, 50%)` // 橙红色调
+                });
+            }
+        }
+
+        // 新增：更新火箭弹
+        function updateRockets() {
+            for (let i = rockets.length - 1; i >= 0; i--) {
+                const rocket = rockets[i];
+                rocket.x += rocket.speedX;
+                rocket.y += rocket.speedY;
+                
+                // 添加尾迹
+                rocket.trail.push({ x: rocket.x, y: rocket.y });
+                if (rocket.trail.length > 8) {
+                    rocket.trail.shift();
+                }
+                
+                // 移除超出屏幕的火箭弹
+                if (rocket.x < 0 || rocket.x > canvas.width || rocket.y < 0 || rocket.y > canvas.height) {
+                    rockets.splice(i, 1);
+                    continue;
+                }
+                
+                // 检查火箭弹与小鸟碰撞
+                for (let bird of birds) {
+                    if (!bird.isFalling) {
+                        const dx = rocket.x - bird.x;
+                        const dy = rocket.y - bird.y;
+                        const distance = Math.sqrt(dx*dx + dy*dy);
+                        
+                        if (distance < bird.size + 5) { // 稍大的碰撞范围
+                            // 小鸟被击中 - 创建爆炸
+                            createExplosion(bird.x, bird.y);
+                            
+                            // 小鸟掉落
+                            bird.isFalling = true;
+                            bird.fallSpeed = 3;
+                            
+                            // 增加分数
+                            score += 10;
+                            
+                            // 添加分数弹出效果
+                            scorePopups.push({
+                                x: bird.x,
+                                y: bird.y,
+                                timer: 60,
+                                value: 10
+                            });
+                            
+                            // 太阳笑脸效果
+                            backgroundElements.sun.isHappy = true;
+                            backgroundElements.sun.happyTimer = 30;
+                            
+                            // 移除火箭弹
+                            rockets.splice(i, 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 新增：更新爆炸效果
+        function updateExplosions() {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const explosion = explosions[i];
+                
+                // 更新爆炸半径
+                if (explosion.growing && explosion.radius < explosion.maxRadius) {
+                    explosion.radius += 3;
+                } else {
+                    explosion.growing = false;
+                    explosion.radius -= 1;
+                }
+                
+                // 更新粒子
+                for (let j = explosion.particles.length - 1; j >= 0; j--) {
+                    const particle = explosion.particles[j];
+                    particle.x += particle.speedX;
+                    particle.y += particle.speedY;
+                    particle.speedY += 0.2; // 重力
+                    particle.life--;
+                    
+                    if (particle.life <= 0) {
+                        explosion.particles.splice(j, 1);
+                    }
+                }
+                
+                // 移除结束的爆炸
+                explosion.timer--;
+                if (explosion.timer <= 0 && explosion.particles.length === 0) {
+                    explosions.splice(i, 1);
+                }
+            }
+        }
+
+        // 新增：绘制火箭弹
+        function drawRockets() {
+            rockets.forEach(rocket => {
+                // 绘制尾迹
+                ctx.strokeStyle = '#ff6600';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                for (let i = 0; i < rocket.trail.length; i++) {
+                    const alpha = i / rocket.trail.length;
+                    if (i === 0) {
+                        ctx.moveTo(rocket.trail[i].x, rocket.trail[i].y);
+                    } else {
+                        ctx.lineTo(rocket.trail[i].x, rocket.trail[i].y);
+                    }
+                }
+                ctx.stroke();
+                
+                // 绘制火箭弹主体
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(rocket.x, rocket.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 绘制火箭弹头部（红色）
+                ctx.fillStyle = '#ff0000';
+                ctx.beginPath();
+                ctx.arc(rocket.x, rocket.y - 2, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 绘制火焰尾部
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath();
+                ctx.arc(rocket.x, rocket.y + 6, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // 新增：绘制爆炸效果
+        function drawExplosions() {
+            explosions.forEach(explosion => {
+                // 绘制爆炸圆圈
+                const alpha = explosion.timer / 30;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                
+                // 外圈（橙色）
+                ctx.fillStyle = '#ff6600';
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 内圈（黄色）
+                ctx.fillStyle = '#ffff00';
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, explosion.radius * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.restore();
+                
+                // 绘制粒子
+                explosion.particles.forEach(particle => {
+                    const particleAlpha = particle.life / 20;
+                    ctx.save();
+                    ctx.globalAlpha = particleAlpha;
+                    ctx.fillStyle = particle.color;
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                });
+            });
+        }
+
+        // 新增：绘制分数
+        function drawScore() {
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(`分数: ${score}`, 10, 30);
+        }
+
+        // 新增：绘制分数弹出效果
+        function drawScorePopups() {
+            for (let i = scorePopups.length - 1; i >= 0; i--) {
+                const popup = scorePopups[i];
+                
+                ctx.fillStyle = `rgba(255, 255, 0, ${popup.timer / 60})`;
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText(`+${popup.value}`, popup.x, popup.y - (60 - popup.timer));
+                
+                popup.timer--;
+                if (popup.timer <= 0) {
+                    scorePopups.splice(i, 1);
+                }
+            }
+        }
+        function drawCloud(cloud) {
+            ctx.save();
+            ctx.globalAlpha = cloud.opacity;
+            ctx.fillStyle = '#ffffff';
+            
+            // 绘制云朵的多个圆形组成蓬松效果
+            const centerX = cloud.x + cloud.width / 2;
+            const centerY = cloud.y + cloud.height / 2;
+            const radius = cloud.height / 2;
+            
+            // 主体圆圈
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 左侧圆圈
+            ctx.beginPath();
+            ctx.arc(centerX - radius * 0.6, centerY, radius * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 右侧圆圈
+            ctx.beginPath();
+            ctx.arc(centerX + radius * 0.6, centerY, radius * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 上方圆圈
+            ctx.beginPath();
+            ctx.arc(centerX - radius * 0.2, centerY - radius * 0.5, radius * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 右上方圆圈
+            ctx.beginPath();
+            ctx.arc(centerX + radius * 0.3, centerY - radius * 0.4, radius * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        // 新增：更新云朵位置
+        function updateClouds() {
+            backgroundElements.clouds.forEach(cloud => {
+                cloud.x += cloud.speed;
+                
+                // 如果云朵移出屏幕右侧，重置到左侧
+                if (cloud.x > canvas.width + cloud.width) {
+                    cloud.x = -cloud.width;
+                    // 随机调整云朵的垂直位置和大小
+                    cloud.y = 15 + Math.random() * 40;
+                    cloud.opacity = 0.6 + Math.random() * 0.3;
+                }
+            });
+        }
+
+        // 绘制太阳（带笑脸效果）
+        function drawSun() {
+            ctx.save();
+            ctx.translate(backgroundElements.sun.x, backgroundElements.sun.y);
+            
+            // 太阳主体
+            ctx.beginPath();
+            ctx.arc(0, 0, backgroundElements.sun.radius, 0, Math.PI * 2);
+            ctx.fillStyle = backgroundElements.sun.color;
+            ctx.fill();
+            
+            // 太阳光芒
+            ctx.strokeStyle = backgroundElements.sun.color;
+            ctx.lineWidth = 3;
+            for(let i = 0; i < 12; i++) {
+                const angle = (i * 30) * Math.PI / 180;
+                const startX = Math.cos(angle) * backgroundElements.sun.radius;
+                const startY = Math.sin(angle) * backgroundElements.sun.radius;
+                const endX = Math.cos(angle) * (backgroundElements.sun.radius + 15);
+                const endY = Math.sin(angle) * (backgroundElements.sun.radius + 15);
+                
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+            }
+            
+            // 笑脸
+            if (backgroundElements.sun.isHappy) {
+                // 笑脸眼睛
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(-8, -5, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(8, -5, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 笑脸嘴巴
+                ctx.beginPath();
+                ctx.arc(0, 5, 10, 0, Math.PI, false);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 更新笑脸计时器
+                backgroundElements.sun.happyTimer--;
+                if (backgroundElements.sun.happyTimer <= 0) {
+                    backgroundElements.sun.isHappy = false;
+                }
+            } else {
+                // 普通眼睛
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(-8, -5, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(8, -5, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 普通嘴巴
+                ctx.beginPath();
+                ctx.arc(0, 5, 10, 0, Math.PI, true);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+
+        // 绘制松树
+        function drawPineTree(tree) {
+            // 树干
+            ctx.fillStyle = tree.trunkColor;
+            ctx.fillRect(tree.x, tree.y - tree.trunkHeight, tree.trunkWidth, tree.trunkHeight);
+            
+            // 树冠
+            const levelHeight = 25;
+            const levelWidthDecrease = 15;
+            
+            for(let i = 0; i < tree.leavesLevels; i++) {
+                const levelY = tree.y - tree.trunkHeight - (i * levelHeight);
+                const levelWidth = 50 - (i * levelWidthDecrease);
+                
+                ctx.beginPath();
+                ctx.moveTo(tree.x + tree.trunkWidth/2, levelY - levelHeight);
+                ctx.lineTo(tree.x + tree.trunkWidth/2 - levelWidth/2, levelY);
+                ctx.lineTo(tree.x + tree.trunkWidth/2 + levelWidth/2, levelY);
+                ctx.closePath();
+                ctx.fillStyle = tree.leavesColor;
+                ctx.fill();
+            }
+            
+            // 树顶
+            ctx.beginPath();
+            ctx.moveTo(tree.x + tree.trunkWidth/2, tree.y - tree.trunkHeight - (tree.leavesLevels * levelHeight) - 10);
+            ctx.lineTo(tree.x + tree.trunkWidth/2 - 5, tree.y - tree.trunkHeight - (tree.leavesLevels * levelHeight));
+            ctx.lineTo(tree.x + tree.trunkWidth/2 + 5, tree.y - tree.trunkHeight - (tree.leavesLevels * levelHeight));
+            ctx.closePath();
+            ctx.fillStyle = tree.leavesColor;
+            ctx.fill();
+        }
+
+        // 老鹰相关函数已取消
+
+        // 绘制精致小鸟
+        function drawDetailedBird(bird) {
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            
+            // 鸟身
+            ctx.beginPath();
+            ctx.ellipse(0, 0, bird.size, bird.size*0.7, 0, 0, Math.PI * 2);
+            ctx.fillStyle = bird.isFalling ? '#e74c3c' : bird.color;
+            ctx.fill();
+            
+            // 鸟头
+            ctx.beginPath();
+            ctx.arc(bird.size * 0.8, -bird.size * 0.4, bird.size * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = bird.isFalling ? '#c0392b' : bird.color;
+            ctx.fill();
+            
+            // 鸟嘴
+            ctx.beginPath();
+            ctx.moveTo(bird.size * 1.2, -bird.size * 0.4);
+            ctx.lineTo(bird.size * 1.6, -bird.size * 0.3);
+            ctx.lineTo(bird.size * 1.2, -bird.size * 0.2);
+            ctx.fillStyle = bird.beakColor;
+            ctx.fill();
+            
+            // 眼睛
+            ctx.beginPath();
+            ctx.arc(bird.size * 0.9, -bird.size * 0.5, bird.size * 0.1, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(bird.size * 0.9, -bird.size * 0.5, bird.size * 0.05, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+            
+            // 尾巴
+            if (!bird.isFalling) {
+                ctx.beginPath();
+                ctx.moveTo(-bird.size * 0.8, 0);
+                ctx.lineTo(-bird.size * 1.5, bird.size * 0.3);
+                ctx.lineTo(-bird.size * 1.2, 0);
+                ctx.lineTo(-bird.size * 1.5, -bird.size * 0.3);
+                ctx.closePath();
+                ctx.fillStyle = bird.isFalling ? '#c0392b' : bird.wingColor;
+                ctx.fill();
+            }
+            
+            // 翅膀（有动画效果）
+            if (!bird.isFalling) {
+                const wingY = Math.sin(bird.wingState) * 5;
+                
+                ctx.beginPath();
+                ctx.ellipse(-bird.size * 0.2, wingY, 
+                           bird.size * 0.6, bird.size * 0.3, 
+                           Math.PI/4, 0, Math.PI * 2);
+                ctx.fillStyle = bird.wingColor;
+                ctx.fill();
+                
+                // 更新翅膀状态
+                bird.wingState += 0.2;
+            }
+            
+            ctx.restore();
+        }
+
+        // 更新和绘制小鸟
+        function updateAndDrawBirds() {
+            birds.forEach(bird => {
+                if (!bird.isFalling) {
+                    bird.x += bird.speed;
+                    if(bird.x > canvas.width + 50) {
+                        resetBird(bird);
+                    }
+                } else {
+                    bird.fallSpeed += 0.5;
+                    bird.y += bird.fallSpeed;
+                    
+                    if (bird.y > canvas.height + 50) {
+                        resetBird(bird);
+                    }
+                }
+                
+                drawDetailedBird(bird);
+            });
+        }
+
+        // 重置小鸟状态
+        function resetBird(bird) {
+            bird.isFalling = false;
+            bird.fallSpeed = 0;
+            bird.x = -50;
+            bird.y = 40 + Math.random() * 60;
+            bird.speed = 1 + Math.random() * 2;
+            bird.wingState = Math.random() * Math.PI * 2;
+        }
+
+        // 检测马里奥和小鸟碰撞（现在通过射击）
+        function checkBirdCollision() {
+            // 小鸟碰撞现在通过子弹处理
+        }
+
+        // 绘制马里奥（带火箭筒）
+        function drawMario() {
+            ctx.save();
+            if (!mario.facingRight) {
+                ctx.translate(mario.x + mario.width, mario.y);
+                ctx.scale(-1, 1);
+            } else {
+                ctx.translate(mario.x, mario.y);
+            }
+            
+            let frame = 0;
+            if (mario.isJumping) {
+                frame = 2;
+                if (mario.velocityY < 0) {
+                    mario.armState = 1;
+                } else {
+                    mario.armState = 2;
+                }
+            } else if (keys.left || keys.right) {
+                frame = Math.floor(mario.frame / 10) % 2;
+                mario.armState = 0;
+            } else {
+                mario.armState = 0;
+            }
+            
+            // 马里奥帽子（红色）
+            ctx.fillStyle = '#e52521';
+            ctx.fillRect(8, 0, 14, 8);
+            
+            // 马里奥脸和脖子（肤色）
+            ctx.fillStyle = '#f9c89b';
+            ctx.fillRect(8, 8, 14, 8);
+            ctx.fillRect(12, 16, 6, 4);
+            
+            // 马里奥上衣（红色）
+            ctx.fillStyle = '#e52521';
+            ctx.fillRect(4, 20, 22, 12);
+            
+            // 马里奥裤子（蓝色）
+            ctx.fillStyle = '#1e90ff';
+            ctx.fillRect(4, 32, 22, 16);
+            
+            // 马里奥鞋子（棕色）
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(4, 48, 10, 4);
+            ctx.fillRect(16, 48, 10, 4);
+            
+            // 马里奥胡子（棕色）
+            if (frame === 0) {
+                ctx.fillStyle = '#8b4513';
+                ctx.fillRect(8, 16, 14, 4);
+            }
+            
+            // 手臂绘制
+            ctx.fillStyle = '#f9c89b';
+            
+            // 射击时双手举火箭筒向上
+            if (mario.isShooting) {
+                // 双手向上举火箭筒
+                ctx.fillRect(0, 6, 4, 12);   // 左臂
+                ctx.fillRect(26, 6, 4, 12);  // 右臂
+            } else {
+                // 正常手臂位置
+                if (mario.armState === 1) {
+                    ctx.fillRect(0, 10, 4, 12);  // 左臂
+                    ctx.fillRect(26, 10, 4, 12); // 右臂
+                } else if (mario.armState === 2) {
+                    ctx.fillRect(0, 30, 4, 8);   // 左臂
+                    ctx.fillRect(26, 30, 4, 8);  // 右臂
+                } else if (frame === 1) {
+                    ctx.fillRect(0, 20, 4, 8);   // 左臂
+                    ctx.fillRect(26, 28, 4, 8);  // 右臂
+                } else {
+                    ctx.fillRect(0, 20, 4, 8);   // 左臂
+                    ctx.fillRect(26, 20, 4, 8);  // 右臂
+                }
+            }
+            
+            // 绘制火箭筒
+            if (mario.hasRocketLauncher) {
+                if (mario.isShooting) {
+                    // 射击时火箭筒竖直向上
+                    // 主管
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(11, -10, 8, 25);
+                    
+                    // 瞄准镜
+                    ctx.fillStyle = '#666';
+                    ctx.fillRect(9, -5, 4, 3);
+                    ctx.fillRect(17, -5, 4, 3);
+                    
+                    // 手柄
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(13, 12, 4, 8);
+                    
+                    // 射击时的火焰效果
+                    ctx.fillStyle = '#ff6600';
+                    ctx.beginPath();
+                    ctx.arc(15, -12, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#ffff00';
+                    ctx.beginPath();
+                    ctx.arc(15, -12, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // 平时火箭筒背在背后
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(10, 5, 6, 20);     // 主管
+                    ctx.fillStyle = '#666';
+                    ctx.fillRect(8, 8, 3, 3);       // 瞄准镜1
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(9, 18, 8, 4);      // 手柄部分
+                }
+            }
+            
+            ctx.restore();
+        }
+
+        // 游戏循环
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 更新射击冷却
+            if (mario.shootCooldown > 0) {
+                mario.shootCooldown--;
+            }
+
+            // 更新火箭弹和爆炸效果
+            updateRockets();
+            updateExplosions();
+
+            // 更新和绘制云朵（在其他背景元素之前）
+            updateClouds();
+            backgroundElements.clouds.forEach(drawCloud);
+
+            // 绘制其他背景元素
+            drawSun();
+            backgroundElements.trees.forEach(drawPineTree);
+            
+            // 玩家移动
+            if (keys.left) mario.x -= mario.speed;
+            if (keys.right) mario.x += mario.speed;
+
+            // 更新动画计时器
+            if (keys.left || keys.right) {
+                mario.animationTimer++;
+                if (mario.animationTimer >= 20) {
+                    mario.frame++;
+                    mario.animationTimer = 0;
+                }
+            }
+
+            // 应用重力
+            mario.velocityY += 0.8;
+            mario.y += mario.velocityY;
+
+            // 边界检查
+            if (mario.x < 0) mario.x = 0;
+            if (mario.x + mario.width > canvas.width) {
+                mario.x = canvas.width - mario.width;
+            }
+
+            // 平台碰撞检测
+            mario.isJumping = true;
+            platforms.forEach(platform => {
+                if (
+                    mario.x + mario.width > platform.x &&
+                    mario.x < platform.x + platform.width &&
+                    mario.y + mario.height > platform.y &&
+                    mario.y < platform.y + platform.height
+                ) {
+                    if (mario.velocityY > 0 && mario.y + mario.height < platform.y + 10) {
+                        mario.y = platform.y - mario.height;
+                        mario.velocityY = 0;
+                        mario.isJumping = false;
+                    }
+                }
+            });
+
+            // 更新和绘制老鹰（已取消）
+            
+            // 检测碰撞（已修改为通过射击）
+            checkBirdCollision();
+
+            // 绘制平台（圆角边缘）
+            platforms.forEach(platform => {
+                ctx.fillStyle = platform.color;
+                ctx.beginPath();
+                const radius = 8; // 圆角半径
+                ctx.roundRect(platform.x, platform.y, platform.width, platform.height, radius);
+                ctx.fill();
+            });
+
+            // 更新和绘制小鸟
+            updateAndDrawBirds();
+
+            // 绘制火箭弹和爆炸效果
+            drawRockets();
+            drawExplosions();
+
+            // 绘制马里奥
+            drawMario();
+
+            // 绘制分数和分数弹出效果
+            drawScore();
+            drawScorePopups();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 开始游戏
+        gameLoop();
+    </script>
+</body>
+</html>
