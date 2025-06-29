@@ -1,4 +1,5 @@
-<div id="instructions">A/D键移动，空格键跳跃，J键或鼠标点击发射火箭！</div><!DOCTYPE html>
+// 新增：爆炸效果设置
+        const explosions = [];    <div id="instructions">A/D键移动，空格键跳跃，J键发射火箭，K键挥舞武士刀！</div><!DOCTYPE html>
 <html>
 <head>
     <title>马里奥打小鸟游戏（老鹰可掉落版）</title>
@@ -51,13 +52,27 @@
             frame: 0,
             animationTimer: 0,
             armState: 0,
-            hasRocketLauncher: true,  // 升级为火箭筒
+            hasRocketLauncher: true,
+            hasSamuraiSword: true,  // 新增：武士刀
             isShooting: false,
-            shootCooldown: 0
+            shootCooldown: 0,
+            isSlashing: false,      // 新增：是否正在挥刀
+            slashCooldown: 0        // 新增：挥刀冷却时间
         };
 
         // 新增：火箭弹设置
         const rockets = [];
+
+        // 新增：挥刀攻击范围
+        const slashEffect = {
+            active: false,
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 40,
+            timer: 0,
+            particles: []
+        };
 
         // 新增：爆炸效果设置
         const explosions = [];
@@ -195,9 +210,13 @@
                 mario.isJumping = true;
                 mario.armState = 1;
             }
-            // 新增：鼠标左键或J键射击
+            // 火箭筒射击
             if ((e.key === 'j' || e.key === 'J') && mario.shootCooldown <= 0) {
                 shoot();
+            }
+            // 新增：武士刀攻击 (K键) - 移除平台限制
+            if ((e.key === 'k' || e.key === 'K') && mario.slashCooldown <= 0) {
+                slashAttack();
             }
             e.preventDefault();
         });
@@ -223,7 +242,122 @@
             canvas.focus();
         });
 
-        // 新增：射击函数 - 火箭筒
+        // 新增：武士刀攻击函数
+        function slashAttack() {
+            mario.isSlashing = true;
+            mario.slashCooldown = 30;
+            
+            // 设置攻击范围 - 向上攻击
+            slashEffect.active = true;
+            slashEffect.x = mario.x - slashEffect.width / 4; // 中心对准马里奥
+            slashEffect.y = mario.y - slashEffect.height; // 向上攻击
+            slashEffect.timer = 15;
+            
+            // 创建刀光粒子效果
+            slashEffect.particles = [];
+            for (let i = 0; i < 12; i++) {
+                slashEffect.particles.push({
+                    x: mario.x + mario.width / 2,
+                    y: mario.y,
+                    speedX: (Math.random() - 0.5) * 8,
+                    speedY: Math.random() * -8 - 2, // 向上飞散
+                    life: 15,
+                    size: Math.random() * 3 + 1
+                });
+            }
+            
+            // 检查攻击范围内的小鸟
+            for (let bird of birds) {
+                if (!bird.isFalling) {
+                    if (bird.x > slashEffect.x && 
+                        bird.x < slashEffect.x + slashEffect.width &&
+                        bird.y > slashEffect.y && 
+                        bird.y < slashEffect.y + slashEffect.height) {
+                        
+                        // 小鸟被砍中
+                        bird.isFalling = true;
+                        bird.fallSpeed = 4;
+                        
+                        // 增加分数
+                        score += 15; // 近战攻击得分更高
+                        
+                        // 添加分数弹出效果
+                        scorePopups.push({
+                            x: bird.x,
+                            y: bird.y,
+                            timer: 60,
+                            value: 15
+                        });
+                        
+                        // 太阳笑脸效果
+                        backgroundElements.sun.isHappy = true;
+                        backgroundElements.sun.happyTimer = 30;
+                    }
+                }
+            }
+            
+            // 攻击动作持续时间
+            setTimeout(() => {
+                mario.isSlashing = false;
+            }, 150);
+        }
+
+        // 新增：更新刀光效果
+        function updateSlashEffect() {
+            if (slashEffect.active) {
+                slashEffect.timer--;
+                
+                // 更新粒子
+                for (let i = slashEffect.particles.length - 1; i >= 0; i--) {
+                    const particle = slashEffect.particles[i];
+                    particle.x += particle.speedX;
+                    particle.y += particle.speedY;
+                    particle.life--;
+                    particle.size *= 0.95;
+                    
+                    if (particle.life <= 0) {
+                        slashEffect.particles.splice(i, 1);
+                    }
+                }
+                
+                if (slashEffect.timer <= 0) {
+                    slashEffect.active = false;
+                }
+            }
+        }
+
+        // 新增：绘制刀光效果
+        function drawSlashEffect() {
+            if (slashEffect.active) {
+                // 绘制向上的刀光弧线
+                ctx.save();
+                ctx.globalAlpha = slashEffect.timer / 15;
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                
+                // 向上的半圆弧
+                ctx.arc(mario.x + mario.width/2, mario.y + mario.height/2, 50, Math.PI, 0, false);
+                ctx.stroke();
+                
+                // 内层光效
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+                
+                // 绘制粒子
+                slashEffect.particles.forEach(particle => {
+                    ctx.save();
+                    ctx.globalAlpha = particle.life / 15;
+                    ctx.fillStyle = '#00ffff';
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                });
+            }
+        }
         function shoot() {
             mario.isShooting = true;
             mario.shootCooldown = 40; // 增加冷却时间，火箭筒射击较慢
@@ -538,21 +672,39 @@
                 ctx.stroke();
             }
             
-            // 笑脸
+            // 永久笑脸
+            // 笑脸眼睛
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-8, -8, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(8, -8, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 笑脸嘴巴
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, 12, 0, Math.PI, false);
+            ctx.stroke();
+            
+            // 特殊的开心状态（击中目标时）
             if (backgroundElements.sun.isHappy) {
-                // 笑脸眼睛
+                // 更大的笑脸眼睛
                 ctx.fillStyle = '#000';
                 ctx.beginPath();
-                ctx.arc(-8, -5, 3, 0, Math.PI * 2);
+                ctx.arc(-8, -8, 4, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.beginPath();
-                ctx.arc(8, -5, 3, 0, Math.PI * 2);
+                ctx.arc(8, -8, 4, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // 笑脸嘴巴
+                // 更大的笑脸嘴巴
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.arc(0, 5, 10, 0, Math.PI, false);
-                ctx.lineWidth = 2;
+                ctx.arc(0, 0, 15, 0, Math.PI, false);
                 ctx.stroke();
                 
                 // 更新笑脸计时器
@@ -560,21 +712,6 @@
                 if (backgroundElements.sun.happyTimer <= 0) {
                     backgroundElements.sun.isHappy = false;
                 }
-            } else {
-                // 普通眼睛
-                ctx.fillStyle = '#000';
-                ctx.beginPath();
-                ctx.arc(-8, -5, 3, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(8, -5, 3, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 普通嘴巴
-                ctx.beginPath();
-                ctx.arc(0, 5, 10, 0, Math.PI, true);
-                ctx.lineWidth = 2;
-                ctx.stroke();
             }
             
             ctx.restore();
@@ -717,7 +854,7 @@
             // 小鸟碰撞现在通过子弹处理
         }
 
-        // 绘制马里奥（带火箭筒）
+        // 绘制马里奥（带火箭筒和武士刀）
         function drawMario() {
             ctx.save();
             if (!mario.facingRight) {
@@ -773,9 +910,14 @@
             // 手臂绘制
             ctx.fillStyle = '#f9c89b';
             
+            // 挥刀动作 - 向上挥刀
+            if (mario.isSlashing) {
+                // 双手向上举刀
+                ctx.fillRect(0, 5, 4, 12);   // 左臂向上
+                ctx.fillRect(26, 5, 4, 12);  // 右臂向上
+            }
             // 射击时双手举火箭筒向上
-            if (mario.isShooting) {
-                // 双手向上举火箭筒
+            else if (mario.isShooting) {
                 ctx.fillRect(0, 6, 4, 12);   // 左臂
                 ctx.fillRect(26, 6, 4, 12);  // 右臂
             } else {
@@ -795,11 +937,31 @@
                 }
             }
             
+            // 绘制武士刀
+            if (mario.hasSamuraiSword && !mario.isShooting) {
+                if (mario.isSlashing) {
+                    // 挥刀时的刀位置 - 向上挥刀
+                    ctx.fillStyle = '#c0c0c0'; // 银色刀身
+                    ctx.fillRect(13, -15, 4, 30);   // 竖直向上的刀身
+                    ctx.fillStyle = '#8b4513';      // 棕色刀柄
+                    ctx.fillRect(12, 12, 6, 8);     // 刀柄
+                    ctx.fillStyle = '#ffd700';      // 金色护手
+                    ctx.fillRect(11, 10, 8, 3);     // 护手
+                } else {
+                    // 平时刀背在腰间
+                    ctx.fillStyle = '#8b4513'; // 刀鞘
+                    ctx.fillRect(20, 25, 3, 18);
+                    ctx.fillStyle = '#ffd700'; // 金色装饰
+                    ctx.fillRect(19, 24, 5, 2);
+                    ctx.fillStyle = '#c0c0c0'; // 刀柄露出部分
+                    ctx.fillRect(21, 22, 1, 6);
+                }
+            }
+            
             // 绘制火箭筒
-            if (mario.hasRocketLauncher) {
+            if (mario.hasRocketLauncher && !mario.isSlashing) {
                 if (mario.isShooting) {
                     // 射击时火箭筒竖直向上
-                    // 主管
                     ctx.fillStyle = '#333';
                     ctx.fillRect(11, -10, 8, 25);
                     
@@ -825,11 +987,11 @@
                 } else {
                     // 平时火箭筒背在背后
                     ctx.fillStyle = '#333';
-                    ctx.fillRect(10, 5, 6, 20);     // 主管
+                    ctx.fillRect(10, 5, 6, 20);
                     ctx.fillStyle = '#666';
-                    ctx.fillRect(8, 8, 3, 3);       // 瞄准镜1
+                    ctx.fillRect(8, 8, 3, 3);
                     ctx.fillStyle = '#654321';
-                    ctx.fillRect(9, 18, 8, 4);      // 手柄部分
+                    ctx.fillRect(9, 18, 8, 4);
                 }
             }
             
@@ -840,14 +1002,18 @@
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 更新射击冷却
+            // 更新射击和挥刀冷却
             if (mario.shootCooldown > 0) {
                 mario.shootCooldown--;
             }
+            if (mario.slashCooldown > 0) {
+                mario.slashCooldown--;
+            }
 
-            // 更新火箭弹和爆炸效果
+            // 更新火箭弹、爆炸效果和刀光效果
             updateRockets();
             updateExplosions();
+            updateSlashEffect();
 
             // 更新和绘制云朵（在其他背景元素之前）
             updateClouds();
@@ -914,9 +1080,10 @@
             // 更新和绘制小鸟
             updateAndDrawBirds();
 
-            // 绘制火箭弹和爆炸效果
+            // 绘制火箭弹、爆炸效果和刀光效果
             drawRockets();
             drawExplosions();
+            drawSlashEffect();
 
             // 绘制马里奥
             drawMario();
